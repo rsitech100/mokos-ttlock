@@ -46,6 +46,27 @@ type ttlockOperationResponse struct {
 	ErrMsg  string `json:"errmsg"`
 }
 
+type identityCard struct {
+	CardID     int64  `json:"cardId"`
+	CardNumber string `json:"cardNumber"`
+}
+
+type identityCardListResponse struct {
+	List     []identityCard `json:"list"`
+	PageNo   int            `json:"pageNo"`
+	PageSize int            `json:"pageSize"`
+	Pages    int            `json:"pages"`
+	Total    int            `json:"total"`
+	ErrCode  int64          `json:"errcode"`
+	ErrMsg   string         `json:"errmsg"`
+}
+
+var ErrCardNumberNotFound = errors.New("card_number not found on lock")
+
+func IsCardNumberNotFound(err error) bool {
+	return errors.Is(err, ErrCardNumberNotFound)
+}
+
 func NewClient(baseURL, clientID, clientSecret string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -365,6 +386,125 @@ func (c *Client) DeleteKeyboardPassword(
 	}
 
 	return nil
+}
+
+func (c *Client) ChangeCardPeriodByNumber(
+	ctx context.Context,
+	lockID int64,
+	cardNumber string,
+	start time.Time,
+	end time.Time,
+	accessToken string,
+) error {
+	if accessToken == "" {
+		return errors.New("access token is required")
+	}
+	if lockID <= 0 {
+		return errors.New("lockId is required")
+	}
+	cardNumber = strings.TrimSpace(cardNumber)
+	if cardNumber == "" {
+		return errors.New("cardNumber is required")
+	}
+
+	cardID, err := c.findCardIDByNumber(ctx, lockID, cardNumber, accessToken)
+	if err != nil {
+		return err
+	}
+
+	form := url.Values{}
+	form.Set("clientId", c.ClientID)
+	form.Set("accessToken", accessToken)
+	form.Set("lockId", strconv.FormatInt(lockID, 10))
+	form.Set("cardId", strconv.FormatInt(cardID, 10))
+	form.Set("startDate", strconv.FormatInt(start.UnixMilli(), 10))
+	form.Set("endDate", strconv.FormatInt(end.UnixMilli(), 10))
+	form.Set("changeType", "2")
+	form.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	endpoint := c.BaseURL + "/v3/identityCard/changePeriod"
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		endpoint,
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf(
+			"change card period failed (%d): %s",
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
+	}
+
+	var result ttlockOperationResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	if result.ErrCode != 0 {
+		return fmt.Errorf("ttlock rejected card period update: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+	}
+
+	return nil
+}
+
+func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (int64, error) {
+	params := url.Values{}
+	params.Set("clientId", c.ClientID)
+	params.Set("accessToken", accessToken)
+	params.Set("lockId", strconv.FormatInt(lockID, 10))
+	params.Set("pageNo", "1")
+	params.Set("pageSize", "100")
+	params.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	endpoint := c.BaseURL + "/v3/identityCard/list?" + params.Encode()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("get card list failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result identityCardListResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("decode card list response: %w", err)
+	}
+
+	if result.ErrCode != 0 {
+		return 0, fmt.Errorf("ttlock rejected card list request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+	}
+
+	for _, card := range result.List {
+		if strings.TrimSpace(card.CardNumber) == cardNumber {
+			if card.CardID <= 0 {
+				return 0, fmt.Errorf("ttlock card data missing cardId for card_number=%s", cardNumber)
+			}
+			return card.CardID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%w: card_number %s not found on lock %d", ErrCardNumberNotFound, cardNumber, lockID)
 }
 
 func decodeKeyboardPwdResponse(body []byte, fallbackID int64, fallbackPwd string) (*keyboardPwdResponse, error) {

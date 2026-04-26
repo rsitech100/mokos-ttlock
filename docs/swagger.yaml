@@ -160,7 +160,7 @@ components:
           description: Existing TTLock keyboardPwdId to update; omit to create new passcode
         card_number:
           type: string
-          description: Optional card number metadata forwarded to TTLock API
+          description: Optional IC card number; when provided, service updates card validity period (start/end) on TTLock
         name:
           type: string
           description: Friendly label for the passcode; defaults to "Passcode"

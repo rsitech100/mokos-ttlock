@@ -9,20 +9,24 @@ import (
 )
 
 type Service struct {
-	baseURL   string
-	http      *http.Client
-	credsRepo CredentialStore
+	baseURL      string
+	http         *http.Client
+	clientID     string
+	clientSecret string
+	credsRepo    CredentialStore
 }
 
-func NewService(baseURL string, httpClient *http.Client, credsRepo CredentialStore) *Service {
+func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret string, credsRepo CredentialStore) *Service {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
 
 	return &Service{
-		baseURL:   strings.TrimSpace(baseURL),
-		http:      httpClient,
-		credsRepo: credsRepo,
+		baseURL:      strings.TrimSpace(baseURL),
+		http:         httpClient,
+		clientID:     strings.TrimSpace(clientID),
+		clientSecret: strings.TrimSpace(clientSecret),
+		credsRepo:    credsRepo,
 	}
 }
 
@@ -48,13 +52,16 @@ func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*
 	if strings.TrimSpace(kostID) == "" {
 		return nil, "", errors.New("kost_id is required")
 	}
+	if s.clientID == "" || s.clientSecret == "" {
+		return nil, "", errors.New("TTLOCK_CLIENT_ID and TTLOCK_CLIENT_SECRET are required")
+	}
 
 	creds, err := s.credsRepo.GetActiveByKostID(ctx, kostID)
 	if err != nil {
 		return nil, "", err
 	}
 
-	client := NewClient(s.baseURL, creds.ClientID, creds.ClientSecret, s.http)
+	client := NewClient(s.baseURL, s.clientID, s.clientSecret, s.http)
 	token, _, err := client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
 	if err != nil {
 		return nil, "", err
@@ -89,6 +96,14 @@ func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*P
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(req.CardNumber) != "" {
+		if err := client.ChangeCardPeriodByNumber(ctx, req.LockID, req.CardNumber, req.Start, req.End, accessToken); err != nil {
+			if !IsCardNumberNotFound(err) {
+				return nil, err
+			}
+		}
 	}
 
 	return &PasscodeResponse{
@@ -127,6 +142,14 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(req.CardNumber) != "" {
+		if err := client.ChangeCardPeriodByNumber(ctx, req.LockID, req.CardNumber, req.Start, req.End, accessToken); err != nil {
+			if !IsCardNumberNotFound(err) {
+				return nil, err
+			}
+		}
 	}
 
 	return &PasscodeResponse{

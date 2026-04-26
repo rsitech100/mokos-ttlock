@@ -57,10 +57,12 @@ Respon contoh:
 ```
 
 ## Catatan
-- Service akan mengambil credential TTLock dari tabel `public.ttlock_integrations` berdasarkan `kost_id` (status `active`).
+- `TTLOCK_CLIENT_ID` dan `TTLOCK_CLIENT_SECRET` diambil dari `.env`.
+- Service mengambil `email` dan `password` TTLock dari tabel `public.ttlock_integrations` berdasarkan `kost_id` (status `active`).
 - Service akan otomatis meng-hit `/oauth2/token` untuk mendapatkan access token.
 - Jika `passcode_id` kosong, service memanggil `/v3/keyboardPwd/add` (buat passcode baru).
 - Jika `passcode_id` diisi, service memanggil `/v3/keyboardPwd/change` (update passcode existing).
+- Jika `card_number` diisi, service juga akan mencari kartu berdasarkan nomor kartu tersebut lalu update `start_at`/`end_at` kartu ke TTLock (`/v3/identityCard/changePeriod`).
 - `start_at` dan `end_at` harus format RFC3339 dan `end_at` > `start_at`.
 
 ### Replace Passcode
@@ -97,7 +99,7 @@ Respon:
 ```
 
 ## Struktur Data Integrasi
-Pastikan tabel berikut ada dan data integration sudah terisi:
+Pastikan tabel berikut ada dan data integration sudah terisi (`email` dan `password` wajib dipakai service):
 
 ```sql
 CREATE TABLE public.ttlock_integrations (

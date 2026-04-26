@@ -41,7 +41,7 @@ func main() {
 	credsStore := ttlock.NewPostgresCredentialStore(db)
 	sharedHTTPClient := &http.Client{Timeout: 10 * time.Second}
 	client := ttlock.NewClient(cfg.TTLockBaseURL, cfg.TTLockClientID, cfg.TTLockClientSecret, sharedHTTPClient)
-	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, credsStore)
+	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, cfg.TTLockClientID, cfg.TTLockClientSecret, credsStore)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
