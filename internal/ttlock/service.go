@@ -106,13 +106,14 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 	}
 
 	if req.PasscodeID > 0 {
-		if err := client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
+		client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
 			LockID:        req.LockID,
 			KeyboardPwdID: req.PasscodeID,
 			AccessToken:   accessToken,
-		}); err != nil {
-			return nil, err
-		}
+		})
+		// err != nil {
+		// 	return nil, err
+		// }
 	}
 
 	result, err := client.AddKeyboardPassword(ctx, KeyboardPwdRequest{
