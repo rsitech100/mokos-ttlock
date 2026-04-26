@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"mokos_lockdoor/internal/ttlock"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -22,8 +24,24 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	client := ttlock.NewClient(cfg.TTLockBaseURL, cfg.TTLockClientID, cfg.TTLockClientSecret, nil)
-	service := ttlock.NewService(client, cfg.TTLockUsername, cfg.TTLockPasswordMD5)
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("failed to ping database: %v", err)
+	}
+
+	credsStore := ttlock.NewPostgresCredentialStore(db)
+	sharedHTTPClient := &http.Client{Timeout: 10 * time.Second}
+	client := ttlock.NewClient(cfg.TTLockBaseURL, cfg.TTLockClientID, cfg.TTLockClientSecret, sharedHTTPClient)
+	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, credsStore)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())

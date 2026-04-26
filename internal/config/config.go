@@ -9,6 +9,7 @@ import (
 )
 
 type Config struct {
+	DatabaseURL        string
 	TTLockClientID     string
 	TTLockClientSecret string
 	TTLockBaseURL      string
@@ -23,6 +24,7 @@ func Load(envFile string) (Config, error) {
 	}
 
 	cfg := Config{
+		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		TTLockClientID:     strings.TrimSpace(os.Getenv("TTLOCK_CLIENT_ID")),
 		TTLockClientSecret: strings.TrimSpace(os.Getenv("TTLOCK_CLIENT_SECRET")),
 		TTLockBaseURL:      strings.TrimSpace(os.Getenv("TTLOCK_BASE_URL")),
@@ -34,11 +36,8 @@ func Load(envFile string) (Config, error) {
 		cfg.TTLockBaseURL = "https://api.ttlock.com"
 	}
 
-	if cfg.TTLockClientID == "" || cfg.TTLockClientSecret == "" {
-		return Config{}, errors.New("TTLOCK_CLIENT_ID and TTLOCK_CLIENT_SECRET are required")
-	}
-	if cfg.TTLockUsername == "" || cfg.TTLockPasswordMD5 == "" {
-		return Config{}, errors.New("TTLOCK_USERNAME and TTLOCK_PASSWORD_MD5 are required")
+	if cfg.DatabaseURL == "" {
+		return Config{}, errors.New("DATABASE_URL is required")
 	}
 
 	return cfg, nil

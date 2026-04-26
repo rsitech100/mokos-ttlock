@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,7 @@ func NewDeletePasscodeHandler(service *ttlock.Service) gin.HandlerFunc {
 }
 
 type passcodeRequestBody struct {
+	KostID     string `json:"kost_id" binding:"required"`
 	LockID     string `json:"lock_id" binding:"required"`
 	Passcode   string `json:"passcode" binding:"required"`
 	PasscodeID string `json:"passcode_id,omitempty"`
@@ -101,6 +103,12 @@ func (h *PasscodeHandler) replace(c *gin.Context) {
 }
 
 func (h *PasscodeHandler) delete(c *gin.Context) {
+	kostID := c.Query("kost_id")
+	if kostID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "kost_id query parameter is required"})
+		return
+	}
+
 	lockID, err := strconv.ParseInt(c.Query("lock_id"), 10, 64)
 	if err != nil || lockID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "lock_id query parameter must be a number"})
@@ -113,19 +121,24 @@ func (h *PasscodeHandler) delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeletePasscode(c.Request.Context(), lockID, passcodeID); err != nil {
+	if err := h.service.DeletePasscode(c.Request.Context(), kostID, lockID, passcodeID); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"deleted":     true,
+		"kost_id":     kostID,
 		"lock_id":     lockID,
 		"passcode_id": passcodeID,
 	})
 }
 
 func mapRequest(body passcodeRequestBody) (ttlock.PasscodeRequest, error) {
+	if strings.TrimSpace(body.KostID) == "" {
+		return ttlock.PasscodeRequest{}, errors.New("kost_id is required")
+	}
+
 	lockID, err := strconv.ParseInt(body.LockID, 10, 64)
 	if err != nil {
 		return ttlock.PasscodeRequest{}, errors.New("lock_id must be a number")
@@ -158,6 +171,7 @@ func mapRequest(body passcodeRequestBody) (ttlock.PasscodeRequest, error) {
 	}
 
 	return ttlock.PasscodeRequest{
+		KostID:     strings.TrimSpace(body.KostID),
 		LockID:     lockID,
 		Passcode:   body.Passcode,
 		PasscodeID: passcodeID,

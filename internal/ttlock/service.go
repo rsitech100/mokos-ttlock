@@ -3,24 +3,31 @@ package ttlock
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
 	"time"
 )
 
 type Service struct {
-	client         *Client
-	username       string
-	passwordMD5Hex string
+	baseURL   string
+	http      *http.Client
+	credsRepo CredentialStore
 }
 
-func NewService(client *Client, username, passwordMD5Hex string) *Service {
+func NewService(baseURL string, httpClient *http.Client, credsRepo CredentialStore) *Service {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
 	return &Service{
-		client:         client,
-		username:       username,
-		passwordMD5Hex: passwordMD5Hex,
+		baseURL:   strings.TrimSpace(baseURL),
+		http:      httpClient,
+		credsRepo: credsRepo,
 	}
 }
 
 type PasscodeRequest struct {
+	KostID     string
 	LockID     int64
 	Passcode   string
 	PasscodeID int64
@@ -37,20 +44,26 @@ type PasscodeResponse struct {
 	StartsAt  time.Time
 }
 
-func (s *Service) getAccessToken(ctx context.Context) (string, error) {
-	if s.username == "" || s.passwordMD5Hex == "" {
-		return "", errors.New("service missing credentials")
+func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*Client, string, error) {
+	if strings.TrimSpace(kostID) == "" {
+		return nil, "", errors.New("kost_id is required")
 	}
 
-	token, _, err := s.client.AuthenticatePassword(ctx, s.username, s.passwordMD5Hex, true)
+	creds, err := s.credsRepo.GetActiveByKostID(ctx, kostID)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return token.AccessToken, nil
+
+	client := NewClient(s.baseURL, creds.ClientID, creds.ClientSecret, s.http)
+	token, _, err := client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
+	if err != nil {
+		return nil, "", err
+	}
+	return client, token.AccessToken, nil
 }
 
 func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*PasscodeResponse, error) {
-	accessToken, err := s.getAccessToken(ctx)
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
 	}
@@ -70,9 +83,9 @@ func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*P
 	)
 	if req.PasscodeID > 0 {
 		params.KeyboardPwdID = req.PasscodeID
-		result, err = s.client.ChangeKeyboardPassword(ctx, params)
+		result, err = client.ChangeKeyboardPassword(ctx, params)
 	} else {
-		result, err = s.client.AddKeyboardPassword(ctx, params)
+		result, err = client.AddKeyboardPassword(ctx, params)
 	}
 	if err != nil {
 		return nil, err
@@ -87,13 +100,13 @@ func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*P
 }
 
 func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*PasscodeResponse, error) {
-	accessToken, err := s.getAccessToken(ctx)
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
 	}
 
 	if req.PasscodeID > 0 {
-		if err := s.client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
+		if err := client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
 			LockID:        req.LockID,
 			KeyboardPwdID: req.PasscodeID,
 			AccessToken:   accessToken,
@@ -102,7 +115,7 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 		}
 	}
 
-	result, err := s.client.AddKeyboardPassword(ctx, KeyboardPwdRequest{
+	result, err := client.AddKeyboardPassword(ctx, KeyboardPwdRequest{
 		LockID:      req.LockID,
 		Name:        req.Name,
 		Start:       req.Start,
@@ -123,12 +136,12 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 	}, nil
 }
 
-func (s *Service) DeletePasscode(ctx context.Context, lockID, passcodeID int64) error {
-	accessToken, err := s.getAccessToken(ctx)
+func (s *Service) DeletePasscode(ctx context.Context, kostID string, lockID, passcodeID int64) error {
+	client, accessToken, err := s.getClientAndAccessToken(ctx, kostID)
 	if err != nil {
 		return err
 	}
-	return s.client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
+	return client.DeleteKeyboardPassword(ctx, KeyboardPwdDeleteRequest{
 		LockID:        lockID,
 		KeyboardPwdID: passcodeID,
 		AccessToken:   accessToken,

@@ -9,8 +9,7 @@ Layanan HTTP kecil (Gin) untuk membuat keyboard passcode TTLock. Struktur dipisa
 ## Konfigurasi
 1) Salin `.env.example` menjadi `.env` lalu isi kredensial:
 ```
-TTLOCK_CLIENT_ID=...
-TTLOCK_CLIENT_SECRET=...
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/mokos?sslmode=disable
 # TTLOCK_BASE_URL=https://api.ttlock.com  # opsional jika pakai endpoint regional
 ```
 2) Pastikan Go 1.20+ terpasang.
@@ -36,6 +35,7 @@ Output adalah hash MD5 lowercase hex.
 Body JSON:
 ```json
 {
+  "kost_id": "6f89a499-3018-45f0-b90f-9906f4c77cca",
   "lock_id": "123456789",
   "passcode": "12331242",
   "passcode_id": "52877108",
@@ -57,6 +57,7 @@ Respon contoh:
 ```
 
 ## Catatan
+- Service akan mengambil credential TTLock dari tabel `public.ttlock_integrations` berdasarkan `kost_id` (status `active`).
 - Service akan otomatis meng-hit `/oauth2/token` untuk mendapatkan access token.
 - Jika `passcode_id` kosong, service memanggil `/v3/keyboardPwd/add` (buat passcode baru).
 - Jika `passcode_id` diisi, service memanggil `/v3/keyboardPwd/change` (update passcode existing).
@@ -70,12 +71,13 @@ Payload sama dengan `POST /passcodes`.
 - Jika `passcode_id` kosong: langsung create passcode baru.
 
 ### Delete Passcode
-`DELETE /passcodes?lock_id=25040769&passcode_id=52877108`
+`DELETE /passcodes?kost_id=6f89a499-3018-45f0-b90f-9906f4c77cca&lock_id=25040769&passcode_id=52877108`
 
 Respon contoh:
 ```json
 {
   "deleted": true,
+  "kost_id": "6f89a499-3018-45f0-b90f-9906f4c77cca",
   "lock_id": 25040769,
   "passcode_id": 52877108
 }
@@ -94,7 +96,24 @@ Respon:
 { "hash": "5ebe2294ecd0e0f08eab7690d2a6ee69" }
 ```
 
-## Otomatisasi Auth
-Isi `.env` dengan `TTLOCK_USERNAME` dan `TTLOCK_PASSWORD_MD5` (password sudah di-MD5). Service akan otomatis memanggil `/oauth2/token` menggunakan grant_type `password` di belakang layar sebelum membuat passcode, sehingga endpoint `/passcodes` tidak perlu access_token dari klien.
+## Struktur Data Integrasi
+Pastikan tabel berikut ada dan data integration sudah terisi:
+
+```sql
+CREATE TABLE public.ttlock_integrations (
+	id uuid NOT NULL,
+	kostid uuid NOT NULL,
+	client_id varchar(255) NOT NULL,
+	secret_key varchar(255) NOT NULL,
+	email varchar(255) NOT NULL,
+	"password" varchar(255) NOT NULL,
+	status public.enum_ttlock_integrations_status DEFAULT 'active'::enum_ttlock_integrations_status NOT NULL,
+	"createdAt" timestamptz NOT NULL,
+	"updatedAt" timestamptz NOT NULL,
+	CONSTRAINT ttlock_integrations_pkey PRIMARY KEY (id),
+	CONSTRAINT ttlock_integrations_kostid_fkey FOREIGN KEY (kostid) REFERENCES public.kosts(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+```
+
 # mokos-lockdoor
 # mokos-ttlock
