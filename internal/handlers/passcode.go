@@ -70,6 +70,10 @@ func (h *PasscodeHandler) handle(c *gin.Context) {
 
 	result, err := h.service.GeneratePasscode(c.Request.Context(), req)
 	if err != nil {
+		if errors.Is(err, ttlock.ErrPasscodeTooSimple) || errors.Is(err, ttlock.ErrPasscodeInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
@@ -97,6 +101,10 @@ func (h *PasscodeHandler) replace(c *gin.Context) {
 
 	result, err := h.service.ReplacePasscode(c.Request.Context(), req)
 	if err != nil {
+		if errors.Is(err, ttlock.ErrPasscodeTooSimple) || errors.Is(err, ttlock.ErrPasscodeInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}

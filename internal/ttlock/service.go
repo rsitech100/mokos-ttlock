@@ -3,6 +3,7 @@ package ttlock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,11 @@ type Service struct {
 }
 
 const defaultOperationTimeout = 30 * time.Second
+
+var (
+	ErrPasscodeTooSimple = errors.New("passcode is too simple")
+	ErrPasscodeInvalid   = errors.New("passcode is invalid")
+)
 
 func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret string, credsRepo CredentialStore) *Service {
 	if httpClient == nil {
@@ -75,6 +81,10 @@ func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*P
 	ctx, cancel := withOperationTimeout(ctx)
 	defer cancel()
 
+	if err := validatePasscodeComplexity(req.Passcode); err != nil {
+		return nil, err
+	}
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
@@ -123,6 +133,10 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 	ctx, cancel := withOperationTimeout(ctx)
 	defer cancel()
 
+	if err := validatePasscodeComplexity(req.Passcode); err != nil {
+		return nil, err
+	}
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
@@ -134,9 +148,6 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 			KeyboardPwdID: req.PasscodeID,
 			AccessToken:   accessToken,
 		})
-		// err != nil {
-		// 	return nil, err
-		// }
 	}
 
 	result, err := client.AddKeyboardPassword(ctx, KeyboardPwdRequest{
@@ -188,4 +199,62 @@ func withOperationTimeout(ctx context.Context) (context.Context, context.CancelF
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, defaultOperationTimeout)
+}
+
+func validatePasscodeComplexity(passcode string) error {
+	passcode = strings.TrimSpace(passcode)
+	if passcode == "" {
+		return errors.New("passcode is required")
+	}
+
+	for _, r := range passcode {
+		if r < '0' || r > '9' {
+			return fmt.Errorf("%w: must contain only digits", ErrPasscodeInvalid)
+		}
+	}
+
+	if hasRepeatedDigits(passcode) {
+		return fmt.Errorf("%w: repeated digits are not allowed", ErrPasscodeTooSimple)
+	}
+	if hasConsecutiveDigits(passcode) {
+		return fmt.Errorf("%w: consecutive digits are not allowed", ErrPasscodeTooSimple)
+	}
+
+	return nil
+}
+
+func hasRepeatedDigits(passcode string) bool {
+	if len(passcode) == 0 {
+		return false
+	}
+
+	first := passcode[0]
+	for i := 1; i < len(passcode); i++ {
+		if passcode[i] != first {
+			return false
+		}
+	}
+	return true
+}
+
+func hasConsecutiveDigits(passcode string) bool {
+	if len(passcode) < 2 {
+		return false
+	}
+
+	ascending := true
+	descending := true
+	for i := 1; i < len(passcode); i++ {
+		prev := int(passcode[i-1] - '0')
+		curr := int(passcode[i] - '0')
+
+		if curr-prev != 1 {
+			ascending = false
+		}
+		if prev-curr != 1 {
+			descending = false
+		}
+	}
+
+	return ascending || descending
 }
