@@ -39,7 +39,17 @@ func main() {
 	}
 
 	credsStore := ttlock.NewPostgresCredentialStore(db)
-	sharedHTTPClient := &http.Client{Timeout: 10 * time.Second}
+	sharedHTTPClient := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	client := ttlock.NewClient(cfg.TTLockBaseURL, cfg.TTLockClientID, cfg.TTLockClientSecret, sharedHTTPClient)
 	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, cfg.TTLockClientID, cfg.TTLockClientSecret, credsStore)
 
@@ -56,8 +66,8 @@ func main() {
 	server := &http.Server{
 		Addr:         ":8088",
 		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 45 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

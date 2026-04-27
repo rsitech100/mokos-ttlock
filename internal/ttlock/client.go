@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -22,6 +23,11 @@ type Client struct {
 	HTTP          *http.Client
 	tokenEndpoint string
 }
+
+const (
+	ttlockHTTPMaxAttempts = 3
+	ttlockRetryBackoff    = 250 * time.Millisecond
+)
 
 type tokenResponse struct {
 	AccessToken      string `json:"access_token"`
@@ -69,7 +75,7 @@ func IsCardNumberNotFound(err error) bool {
 
 func NewClient(baseURL, clientID, clientSecret string, httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
 
 	if baseURL == "" {
@@ -98,7 +104,7 @@ func (c *Client) Authenticate(ctx context.Context) (string, time.Time, error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -153,7 +159,7 @@ func (c *Client) AuthenticatePassword(ctx context.Context, username, password st
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -251,7 +257,7 @@ func (c *Client) AddKeyboardPassword(
 
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +316,7 @@ func (c *Client) ChangeKeyboardPassword(
 
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +368,7 @@ func (c *Client) DeleteKeyboardPassword(
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return err
 	}
@@ -434,7 +440,7 @@ func (c *Client) ChangeCardPeriodByNumber(
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return err
 	}
@@ -475,7 +481,7 @@ func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumbe
 		return 0, err
 	}
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return 0, err
 	}
@@ -528,4 +534,85 @@ func decodeKeyboardPwdResponse(body []byte, fallbackID int64, fallbackPwd string
 	}
 
 	return &result, nil
+}
+
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, errors.New("request is required")
+	}
+
+	canReplayBody := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+	backoff := ttlockRetryBackoff
+
+	for attempt := 1; attempt <= ttlockHTTPMaxAttempts; attempt++ {
+		callReq, err := cloneRequest(req)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := c.HTTP.Do(callReq)
+		if err == nil {
+			return resp, nil
+		}
+
+		if !isRetryableTransportError(err) || attempt == ttlockHTTPMaxAttempts || !canReplayBody {
+			return nil, err
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-req.Context().Done():
+			timer.Stop()
+			return nil, req.Context().Err()
+		case <-timer.C:
+			backoff *= 2
+		}
+	}
+
+	return nil, errors.New("request failed after retries")
+}
+
+func cloneRequest(req *http.Request) (*http.Request, error) {
+	cloned := req.Clone(req.Context())
+	if req.GetBody == nil {
+		return cloned, nil
+	}
+
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, fmt.Errorf("clone request body: %w", err)
+	}
+	cloned.Body = body
+	return cloned, nil
+}
+
+func isRetryableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	retryableSnippets := []string{
+		"socket hang up",
+		"connection reset by peer",
+		"broken pipe",
+		"unexpected eof",
+		"use of closed network connection",
+		"server closed idle connection",
+	}
+	for _, snippet := range retryableSnippets {
+		if strings.Contains(msg, snippet) {
+			return true
+		}
+	}
+
+	return false
 }

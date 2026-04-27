@@ -16,9 +16,11 @@ type Service struct {
 	credsRepo    CredentialStore
 }
 
+const defaultOperationTimeout = 30 * time.Second
+
 func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret string, credsRepo CredentialStore) *Service {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
 
 	return &Service{
@@ -70,6 +72,9 @@ func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*
 }
 
 func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*PasscodeResponse, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
@@ -115,6 +120,9 @@ func (s *Service) GeneratePasscode(ctx context.Context, req PasscodeRequest) (*P
 }
 
 func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*PasscodeResponse, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
@@ -161,6 +169,9 @@ func (s *Service) ReplacePasscode(ctx context.Context, req PasscodeRequest) (*Pa
 }
 
 func (s *Service) DeletePasscode(ctx context.Context, kostID string, lockID, passcodeID int64) error {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, kostID)
 	if err != nil {
 		return err
@@ -170,4 +181,11 @@ func (s *Service) DeletePasscode(ctx context.Context, kostID string, lockID, pas
 		KeyboardPwdID: passcodeID,
 		AccessToken:   accessToken,
 	})
+}
+
+func withOperationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, defaultOperationTimeout)
 }
