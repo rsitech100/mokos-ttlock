@@ -48,6 +48,13 @@ type passcodeResponseBody struct {
 	EndAt      int64  `json:"end_at"`
 }
 
+type replacePasscodeResponseBody struct {
+	ID       int64  `json:"id"`
+	Passcode string `json:"passcode"`
+	StartAt  int64  `json:"start_at"`
+	EndAt    int64  `json:"end_at"`
+}
+
 func (h *PasscodeHandler) handle(c *gin.Context) {
 	var body passcodeRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -67,11 +74,11 @@ func (h *PasscodeHandler) handle(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, passcodeResponseBody{
-		PasscodeID: result.ID,
-		Passcode:   result.Passcode,
-		StartAt:    result.StartsAt.UnixMilli(),
-		EndAt:      result.ExpiresAt.UnixMilli(),
+	c.JSON(http.StatusCreated, replacePasscodeResponseBody{
+		ID:       result.ID,
+		Passcode: result.Passcode,
+		StartAt:  result.StartsAt.UnixMilli(),
+		EndAt:    result.ExpiresAt.UnixMilli(),
 	})
 }
 
