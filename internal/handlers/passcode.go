@@ -74,11 +74,11 @@ func (h *PasscodeHandler) handle(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, replacePasscodeResponseBody{
-		ID:       result.ID,
-		Passcode: result.Passcode,
-		StartAt:  result.StartsAt.UnixMilli(),
-		EndAt:    result.ExpiresAt.UnixMilli(),
+	c.JSON(http.StatusCreated, passcodeResponseBody{
+		PasscodeID: result.ID,
+		Passcode:   result.Passcode,
+		StartAt:    result.StartsAt.UnixMilli(),
+		EndAt:      result.ExpiresAt.UnixMilli(),
 	})
 }
 
@@ -101,11 +101,11 @@ func (h *PasscodeHandler) replace(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, passcodeResponseBody{
-		PasscodeID: result.ID,
-		Passcode:   result.Passcode,
-		StartAt:    result.StartsAt.UnixMilli(),
-		EndAt:      result.ExpiresAt.UnixMilli(),
+	c.JSON(http.StatusCreated, replacePasscodeResponseBody{
+		ID:       result.ID,
+		Passcode: result.Passcode,
+		StartAt:  result.StartsAt.UnixMilli(),
+		EndAt:    result.ExpiresAt.UnixMilli(),
 	})
 }
 
