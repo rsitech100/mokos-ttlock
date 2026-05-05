@@ -20,8 +20,9 @@ type Service struct {
 const defaultOperationTimeout = 30 * time.Second
 
 var (
-	ErrPasscodeTooSimple = errors.New("passcode is too simple")
-	ErrPasscodeInvalid   = errors.New("passcode is invalid")
+	ErrPasscodeTooSimple  = errors.New("passcode is too simple")
+	ErrPasscodeInvalid    = errors.New("passcode is invalid")
+	ErrCardNumberRequired = errors.New("card_number is required")
 )
 
 func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret string, credsRepo CredentialStore) *Service {
@@ -54,6 +55,14 @@ type PasscodeResponse struct {
 	Passcode  string
 	ExpiresAt time.Time
 	StartsAt  time.Time
+}
+
+type ReplaceCardRequest struct {
+	KostID     string
+	LockID     int64
+	CardNumber string
+	Start      time.Time
+	End        time.Time
 }
 
 func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*Client, string, error) {
@@ -257,4 +266,26 @@ func hasConsecutiveDigits(passcode string) bool {
 	}
 
 	return ascending || descending
+}
+
+func (s *Service) ReplaceCardPeriod(ctx context.Context, req ReplaceCardRequest) error {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if strings.TrimSpace(req.CardNumber) == "" {
+		return ErrCardNumberRequired
+	}
+	if req.LockID <= 0 {
+		return errors.New("lock_id is required")
+	}
+	if req.End.Before(req.Start) {
+		return errors.New("end_at must be after start_at")
+	}
+
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
+	if err != nil {
+		return err
+	}
+
+	return client.ChangeCardPeriodByNumber(ctx, req.LockID, req.CardNumber, req.Start, req.End, accessToken)
 }

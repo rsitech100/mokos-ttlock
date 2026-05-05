@@ -11,6 +11,8 @@ servers:
 tags:
   - name: Passcodes
     description: Generate TTLock keyboard passcodes
+  - name: Cards
+    description: Manage TTLock card validity period
 paths:
   /passcodes:
     post:
@@ -139,6 +141,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /card/replace:
+    post:
+      tags: [Cards]
+      summary: Replace TTLock card validity period
+      description: >
+        Updates start and end validity of an already paired card on the selected lock.
+        TTLock credentials are resolved from `ttlock_integrations` using `kost_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceCardRequest'
+            example:
+              kost_id: "6f89a499-3018-45f0-b90f-9906f4c77cca"
+              lock_id: "123456789"
+              card_number: "1550390851"
+              start_at: 2024-12-24T12:00:00Z
+              end_at: 2024-12-25T12:00:00Z
+      responses:
+        '200':
+          description: Card period replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplaceCardResponse'
+        '400':
+          description: Invalid payload (validation failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Card number not found on lock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream TTLock error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     PasscodeRequest:
@@ -180,6 +226,44 @@ components:
           format: int64
           description: keyboardPwdId returned by TTLock API
         passcode:
+          type: string
+        start_at:
+          type: integer
+          format: int64
+          description: Start time in milliseconds since epoch
+        end_at:
+          type: integer
+          format: int64
+          description: End time in milliseconds since epoch
+    ReplaceCardRequest:
+      type: object
+      required: [kost_id, lock_id, card_number, start_at, end_at]
+      properties:
+        kost_id:
+          type: string
+          format: uuid
+          description: Kost ID for resolving active TTLock integration
+        lock_id:
+          type: string
+          description: Lock ID (numeric string)
+        card_number:
+          type: string
+          description: Card number already paired on TTLock lock
+        start_at:
+          type: string
+          format: date-time
+          description: Start time in RFC3339 (UTC recommended)
+        end_at:
+          type: string
+          format: date-time
+          description: End time in RFC3339; must be after `start_at`
+    ReplaceCardResponse:
+      type: object
+      properties:
+        lock_id:
+          type: integer
+          format: int64
+        card_number:
           type: string
         start_at:
           type: integer

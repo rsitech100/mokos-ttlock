@@ -61,6 +61,7 @@ func main() {
 	router.POST("/passcodes", handlers.NewPasscodeHandler(service))
 	router.POST("/passcodes/replace", handlers.NewReplacePasscodeHandler(service))
 	router.DELETE("/passcodes", handlers.NewDeletePasscodeHandler(service))
+	router.POST("/card/replace", handlers.NewReplaceCardHandler(service))
 	router.POST("/hash/md5", handlers.NewMD5HashHandler())
 
 	server := &http.Server{
