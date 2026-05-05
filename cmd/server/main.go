@@ -51,16 +51,19 @@ func main() {
 		},
 	}
 	client := ttlock.NewClient(cfg.TTLockBaseURL, cfg.TTLockClientID, cfg.TTLockClientSecret, sharedHTTPClient)
-	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, cfg.TTLockClientID, cfg.TTLockClientSecret, credsStore)
+	service := ttlock.NewService(cfg.TTLockBaseURL, sharedHTTPClient, cfg.TTLockClientID, cfg.TTLockClientSecret, cfg.TTLockUsername, cfg.TTLockPasswordMD5, credsStore)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.GET("/swagger", handlers.NewSwaggerUIHandler())
 	router.StaticFile("/swagger/openapi.yaml", "docs/swagger.yaml")
 	router.POST("/auth/token", handlers.NewAuthHandler(client))
+	router.POST("/auth/verify-account", handlers.NewVerifyAccountHandler(client))
 	router.POST("/passcodes", handlers.NewPasscodeHandler(service))
 	router.POST("/passcodes/replace", handlers.NewReplacePasscodeHandler(service))
 	router.DELETE("/passcodes", handlers.NewDeletePasscodeHandler(service))
+	router.POST("/cards", handlers.NewAddCardHandler(service))
+	router.DELETE("/cards", handlers.NewDeleteCardHandler(service))
 	router.POST("/card/replace", handlers.NewReplaceCardHandler(service))
 	router.POST("/hash/md5", handlers.NewMD5HashHandler())
 

@@ -50,6 +50,7 @@ type keyboardPwdResponse struct {
 type ttlockOperationResponse struct {
 	ErrCode int64  `json:"errcode"`
 	ErrMsg  string `json:"errmsg"`
+	CardID  int64  `json:"cardId"`
 }
 
 type identityCard struct {
@@ -464,6 +465,147 @@ func (c *Client) ChangeCardPeriodByNumber(
 	}
 
 	return nil
+}
+
+func (c *Client) AddCardByNumber(
+	ctx context.Context,
+	lockID int64,
+	cardNumber, cardName string,
+	start time.Time,
+	end time.Time,
+	accessToken string,
+) (int64, error) {
+	if accessToken == "" {
+		return 0, errors.New("access token is required")
+	}
+	if lockID <= 0 {
+		return 0, errors.New("lockId is required")
+	}
+	cardNumber = strings.TrimSpace(cardNumber)
+	if cardNumber == "" {
+		return 0, errors.New("cardNumber is required")
+	}
+
+	form := url.Values{}
+	form.Set("clientId", c.ClientID)
+	form.Set("accessToken", accessToken)
+	form.Set("lockId", strconv.FormatInt(lockID, 10))
+	form.Set("cardNumber", cardNumber)
+	if strings.TrimSpace(cardName) != "" {
+		form.Set("cardName", strings.TrimSpace(cardName))
+	}
+	form.Set("startDate", strconv.FormatInt(start.UnixMilli(), 10))
+	form.Set("endDate", strconv.FormatInt(end.UnixMilli(), 10))
+	form.Set("addType", "2")
+	form.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	endpoint := c.BaseURL + "/v3/identityCard/add"
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		endpoint,
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return 0, err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf(
+			"add card failed (%d): %s",
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
+	}
+
+	var result ttlockOperationResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("decode response: %w", err)
+	}
+	if result.ErrCode != 0 {
+		return 0, fmt.Errorf("ttlock rejected add card request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+	}
+	if result.CardID <= 0 {
+		return 0, fmt.Errorf("ttlock response missing cardId: %s", strings.TrimSpace(string(body)))
+	}
+
+	return result.CardID, nil
+}
+
+func (c *Client) DeleteCardByNumber(
+	ctx context.Context,
+	lockID int64,
+	cardNumber string,
+	accessToken string,
+) (int64, error) {
+	if accessToken == "" {
+		return 0, errors.New("access token is required")
+	}
+	if lockID <= 0 {
+		return 0, errors.New("lockId is required")
+	}
+	cardNumber = strings.TrimSpace(cardNumber)
+	if cardNumber == "" {
+		return 0, errors.New("cardNumber is required")
+	}
+
+	cardID, err := c.findCardIDByNumber(ctx, lockID, cardNumber, accessToken)
+	if err != nil {
+		return 0, err
+	}
+
+	form := url.Values{}
+	form.Set("clientId", c.ClientID)
+	form.Set("accessToken", accessToken)
+	form.Set("lockId", strconv.FormatInt(lockID, 10))
+	form.Set("cardId", strconv.FormatInt(cardID, 10))
+	form.Set("deleteType", "2")
+	form.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	endpoint := c.BaseURL + "/v3/identityCard/delete"
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		endpoint,
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return 0, err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf(
+			"delete card failed (%d): %s",
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
+	}
+
+	var result ttlockOperationResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("decode response: %w", err)
+	}
+	if result.ErrCode != 0 {
+		return 0, fmt.Errorf("ttlock rejected delete card request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+	}
+
+	return cardID, nil
 }
 
 func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (int64, error) {

@@ -30,6 +30,25 @@ go run ./cmd/md5gen -password 'your-plain-password'
 Output adalah hash MD5 lowercase hex.
 
 ## Endpoint
+`POST /auth/verify-account`
+
+Body JSON:
+```json
+{
+  "username": "you@example.com",
+  "password": "5ebe2294ecd0e0f08eab7690d2a6ee69",
+  "md5": true
+}
+```
+
+Respon contoh:
+```json
+{
+  "verified": true,
+  "message": "ttlock account verified"
+}
+```
+
 `POST /passcodes`
 
 Body JSON:
@@ -84,6 +103,25 @@ Respon contoh:
   "passcode_id": 52877108
 }
 ```
+
+### Add Card
+`POST /cards`
+
+Body JSON:
+```json
+{
+  "lock_id": "123456789",
+  "card_number": "1550390851",
+  "card_name": "Kartu Tamu",
+  "start_at": "2024-12-24T12:00:00Z",
+  "end_at": "2024-12-25T12:00:00Z"
+}
+```
+
+`POST /cards` menggunakan `TTLOCK_USERNAME` dan `TTLOCK_PASSWORD_MD5` dari `.env` (tidak pakai `kost_id`).
+
+### Delete Card
+`DELETE /cards?kost_id=6f89a499-3018-45f0-b90f-9906f4c77cca&lock_id=25040769&card_number=1550390851`
 
 ### MD5 Hash Utility
 `POST /hash/md5`

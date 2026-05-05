@@ -9,11 +9,56 @@ servers:
   - url: http://localhost:8088
     description: Local development
 tags:
+  - name: Auth
+    description: Authenticate and verify TTLock accounts
   - name: Passcodes
     description: Generate TTLock keyboard passcodes
   - name: Cards
-    description: Manage TTLock card validity period
+    description: Manage TTLock cards
 paths:
+  /auth/verify-account:
+    post:
+      tags: [Auth]
+      summary: Verify TTLock account credentials
+      description: Verifies username and password by attempting TTLock password grant authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                md5:
+                  type: boolean
+                  description: Set true when password is already MD5 hashed
+            example:
+              username: "you@example.com"
+              password: "5ebe2294ecd0e0f08eab7690d2a6ee69"
+              md5: true
+      responses:
+        '200':
+          description: Account verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyAccountResponse'
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream TTLock error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /passcodes:
     post:
       tags: [Passcodes]
@@ -185,6 +230,90 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /cards:
+    post:
+      tags: [Cards]
+      summary: Add a TTLock card to lock
+      description: Creates a new card on lock with validity period.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCardRequest'
+            example:
+              lock_id: "123456789"
+              card_number: "1550390851"
+              card_name: "Kartu Tamu"
+              start_at: 2024-12-24T12:00:00Z
+              end_at: 2024-12-25T12:00:00Z
+      responses:
+        '201':
+          description: Card created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddCardResponse'
+        '400':
+          description: Invalid payload (validation failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream TTLock error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Cards]
+      summary: Delete a TTLock card from lock
+      parameters:
+        - in: query
+          name: kost_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Kost ID for resolving TTLock credentials
+        - in: query
+          name: lock_id
+          required: true
+          schema:
+            type: string
+          description: Lock ID (numeric string)
+        - in: query
+          name: card_number
+          required: true
+          schema:
+            type: string
+          description: Card number on lock
+      responses:
+        '200':
+          description: Card deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteCardResponse'
+        '400':
+          description: Invalid query params
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Card number not found on lock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream TTLock error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     PasscodeRequest:
@@ -273,6 +402,62 @@ components:
           type: integer
           format: int64
           description: End time in milliseconds since epoch
+    AddCardRequest:
+      type: object
+      required: [lock_id, card_number, start_at, end_at]
+      properties:
+        lock_id:
+          type: string
+          description: Lock ID (numeric string)
+        card_number:
+          type: string
+          description: Card number to pair on lock
+        card_name:
+          type: string
+          description: Optional card label
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    AddCardResponse:
+      type: object
+      properties:
+        created:
+          type: boolean
+        lock_id:
+          type: integer
+          format: int64
+        card_id:
+          type: integer
+          format: int64
+        card_number:
+          type: string
+        card_name:
+          type: string
+        start_at:
+          type: integer
+          format: int64
+        end_at:
+          type: integer
+          format: int64
+    DeleteCardResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        kost_id:
+          type: string
+          format: uuid
+        lock_id:
+          type: integer
+          format: int64
+        card_id:
+          type: integer
+          format: int64
+        card_number:
+          type: string
     ErrorResponse:
       type: object
       properties:
@@ -292,3 +477,10 @@ components:
         passcode_id:
           type: integer
           format: int64
+    VerifyAccountResponse:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        message:
+          type: string

@@ -14,6 +14,8 @@ type Service struct {
 	http         *http.Client
 	clientID     string
 	clientSecret string
+	username     string
+	passwordMD5  string
 	credsRepo    CredentialStore
 }
 
@@ -25,7 +27,7 @@ var (
 	ErrCardNumberRequired = errors.New("card_number is required")
 )
 
-func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret string, credsRepo CredentialStore) *Service {
+func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret, username, passwordMD5 string, credsRepo CredentialStore) *Service {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
@@ -35,6 +37,8 @@ func NewService(baseURL string, httpClient *http.Client, clientID, clientSecret 
 		http:         httpClient,
 		clientID:     strings.TrimSpace(clientID),
 		clientSecret: strings.TrimSpace(clientSecret),
+		username:     strings.TrimSpace(username),
+		passwordMD5:  strings.TrimSpace(passwordMD5),
 		credsRepo:    credsRepo,
 	}
 }
@@ -63,6 +67,30 @@ type ReplaceCardRequest struct {
 	CardNumber string
 	Start      time.Time
 	End        time.Time
+}
+
+type AddCardRequest struct {
+	LockID     int64
+	CardNumber string
+	CardName   string
+	Start      time.Time
+	End        time.Time
+}
+
+type AddCardResponse struct {
+	CardID int64
+	LockID int64
+}
+
+type DeleteCardRequest struct {
+	KostID     string
+	LockID     int64
+	CardNumber string
+}
+
+type DeleteCardResponse struct {
+	CardID int64
+	LockID int64
 }
 
 func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*Client, string, error) {
@@ -288,4 +316,60 @@ func (s *Service) ReplaceCardPeriod(ctx context.Context, req ReplaceCardRequest)
 	}
 
 	return client.ChangeCardPeriodByNumber(ctx, req.LockID, req.CardNumber, req.Start, req.End, accessToken)
+}
+
+func (s *Service) AddCard(ctx context.Context, req AddCardRequest) (*AddCardResponse, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if strings.TrimSpace(req.CardNumber) == "" {
+		return nil, ErrCardNumberRequired
+	}
+	if req.LockID <= 0 {
+		return nil, errors.New("lock_id is required")
+	}
+	if req.End.Before(req.Start) {
+		return nil, errors.New("end_at must be after start_at")
+	}
+
+	if s.username == "" || s.passwordMD5 == "" {
+		return nil, errors.New("TTLOCK_USERNAME and TTLOCK_PASSWORD_MD5 are required")
+	}
+
+	client := NewClient(s.baseURL, s.clientID, s.clientSecret, s.http)
+	token, _, err := client.AuthenticatePassword(ctx, s.username, s.passwordMD5, true)
+	if err != nil {
+		return nil, err
+	}
+
+	cardID, err := client.AddCardByNumber(ctx, req.LockID, req.CardNumber, req.CardName, req.Start, req.End, token.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AddCardResponse{CardID: cardID, LockID: req.LockID}, nil
+}
+
+func (s *Service) DeleteCard(ctx context.Context, req DeleteCardRequest) (*DeleteCardResponse, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if strings.TrimSpace(req.CardNumber) == "" {
+		return nil, ErrCardNumberRequired
+	}
+	if req.LockID <= 0 {
+		return nil, errors.New("lock_id is required")
+	}
+
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
+	if err != nil {
+		return nil, err
+	}
+
+	cardID, err := client.DeleteCardByNumber(ctx, req.LockID, req.CardNumber, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DeleteCardResponse{CardID: cardID, LockID: req.LockID}, nil
 }

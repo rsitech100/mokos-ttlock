@@ -21,6 +21,11 @@ type tokenResponse struct {
 	ExpiresAt    int64  `json:"expires_at"`
 }
 
+type verifyAccountResponse struct {
+	Verified bool   `json:"verified"`
+	Message  string `json:"message"`
+}
+
 func NewAuthHandler(client *ttlock.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body tokenRequest
@@ -41,6 +46,26 @@ func NewAuthHandler(client *ttlock.Client) gin.HandlerFunc {
 			ExpiresIn:    token.ExpiresIn,
 			UID:          token.UID,
 			ExpiresAt:    expAt.UnixMilli(),
+		})
+	}
+}
+
+func NewVerifyAccountHandler(client *ttlock.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body tokenRequest
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if _, _, err := client.AuthenticatePassword(c.Request.Context(), body.Username, body.Password, body.MD5); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, verifyAccountResponse{
+			Verified: true,
+			Message:  "ttlock account verified",
 		})
 	}
 }
