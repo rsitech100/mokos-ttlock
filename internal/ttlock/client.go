@@ -486,6 +486,31 @@ func (c *Client) AddCardByNumber(
 		return 0, errors.New("cardNumber is required")
 	}
 
+	addTypes := []string{"2", "1"}
+	var lastErr error
+	for _, addType := range addTypes {
+		cardID, err := c.addCardByNumberWithType(ctx, lockID, cardNumber, cardName, start, end, accessToken, addType)
+		if err == nil {
+			return cardID, nil
+		}
+		lastErr = err
+		if !isTTLockPermissionDenied(err) {
+			return 0, err
+		}
+	}
+
+	return 0, lastErr
+}
+
+func (c *Client) addCardByNumberWithType(
+	ctx context.Context,
+	lockID int64,
+	cardNumber, cardName string,
+	start time.Time,
+	end time.Time,
+	accessToken string,
+	addType string,
+) (int64, error) {
 	form := url.Values{}
 	form.Set("clientId", c.ClientID)
 	form.Set("accessToken", accessToken)
@@ -496,7 +521,7 @@ func (c *Client) AddCardByNumber(
 	}
 	form.Set("startDate", strconv.FormatInt(start.UnixMilli(), 10))
 	form.Set("endDate", strconv.FormatInt(end.UnixMilli(), 10))
-	form.Set("addType", "2")
+	form.Set("addType", addType)
 	form.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	endpoint := c.BaseURL + "/v3/identityCard/add"
@@ -531,7 +556,7 @@ func (c *Client) AddCardByNumber(
 		return 0, fmt.Errorf("decode response: %w", err)
 	}
 	if result.ErrCode != 0 {
-		return 0, fmt.Errorf("ttlock rejected add card request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+		return 0, fmt.Errorf("ttlock rejected add card request (addType=%s): errcode=%d errmsg=%s raw=%s", addType, result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
 	}
 	if result.CardID <= 0 {
 		return 0, fmt.Errorf("ttlock response missing cardId: %s", strings.TrimSpace(string(body)))
@@ -676,6 +701,15 @@ func decodeKeyboardPwdResponse(body []byte, fallbackID int64, fallbackPwd string
 	}
 
 	return &result, nil
+}
+
+func isTTLockPermissionDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "errcode=-2018") || strings.Contains(strings.ToLower(msg), "permission denied")
 }
 
 func (c *Client) do(req *http.Request) (*http.Response, error) {

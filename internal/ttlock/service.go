@@ -70,6 +70,7 @@ type ReplaceCardRequest struct {
 }
 
 type AddCardRequest struct {
+	KostID     string
 	LockID     int64
 	CardNumber string
 	CardName   string
@@ -332,17 +333,12 @@ func (s *Service) AddCard(ctx context.Context, req AddCardRequest) (*AddCardResp
 		return nil, errors.New("end_at must be after start_at")
 	}
 
-	if s.username == "" || s.passwordMD5 == "" {
-		return nil, errors.New("TTLOCK_USERNAME and TTLOCK_PASSWORD_MD5 are required")
-	}
-
-	client := NewClient(s.baseURL, s.clientID, s.clientSecret, s.http)
-	token, _, err := client.AuthenticatePassword(ctx, s.username, s.passwordMD5, true)
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
 	}
 
-	cardID, err := client.AddCardByNumber(ctx, req.LockID, req.CardNumber, req.CardName, req.Start, req.End, token.AccessToken)
+	cardID, err := client.AddCardByNumber(ctx, req.LockID, req.CardNumber, req.CardName, req.Start, req.End, accessToken)
 	if err != nil {
 		return nil, err
 	}

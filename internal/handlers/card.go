@@ -46,6 +46,7 @@ type replaceCardResponseBody struct {
 }
 
 type addCardRequestBody struct {
+	KostID     string `json:"kost_id" binding:"required"`
 	LockID     string `json:"lock_id" binding:"required"`
 	CardNumber string `json:"card_number" binding:"required"`
 	CardName   string `json:"card_name,omitempty"`
@@ -55,6 +56,7 @@ type addCardRequestBody struct {
 
 type addCardResponseBody struct {
 	Created    bool   `json:"created"`
+	KostID     string `json:"kost_id"`
 	LockID     int64  `json:"lock_id"`
 	CardID     int64  `json:"card_id"`
 	CardNumber string `json:"card_number"`
@@ -134,6 +136,7 @@ func (h *CardHandler) add(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, addCardResponseBody{
 		Created:    true,
+		KostID:     req.KostID,
 		LockID:     result.LockID,
 		CardID:     result.CardID,
 		CardNumber: req.CardNumber,
@@ -220,6 +223,11 @@ func mapReplaceCardRequest(body replaceCardRequestBody) (ttlock.ReplaceCardReque
 }
 
 func mapAddCardRequest(body addCardRequestBody) (ttlock.AddCardRequest, error) {
+	kostID := strings.TrimSpace(body.KostID)
+	if kostID == "" {
+		return ttlock.AddCardRequest{}, errors.New("kost_id is required")
+	}
+
 	lockID, err := strconv.ParseInt(body.LockID, 10, 64)
 	if err != nil || lockID <= 0 {
 		return ttlock.AddCardRequest{}, errors.New("lock_id must be a number")
@@ -245,6 +253,7 @@ func mapAddCardRequest(body addCardRequestBody) (ttlock.AddCardRequest, error) {
 	}
 
 	return ttlock.AddCardRequest{
+		KostID:     kostID,
 		LockID:     lockID,
 		CardNumber: cardNumber,
 		CardName:   strings.TrimSpace(body.CardName),

@@ -110,6 +110,7 @@ Respon contoh:
 Body JSON:
 ```json
 {
+  "kost_id": "6f89a499-3018-45f0-b90f-9906f4c77cca",
   "lock_id": "123456789",
   "card_number": "1550390851",
   "card_name": "Kartu Tamu",
@@ -118,7 +119,7 @@ Body JSON:
 }
 ```
 
-`POST /cards` menggunakan `TTLOCK_USERNAME` dan `TTLOCK_PASSWORD_MD5` dari `.env` (tidak pakai `kost_id`).
+`POST /cards` menggunakan `kost_id` untuk resolve kredensial TTLock aktif dari tabel integrasi, sama seperti flow `/card/replace`.
 
 ### Delete Card
 `DELETE /cards?kost_id=6f89a499-3018-45f0-b90f-9906f4c77cca&lock_id=25040769&card_number=1550390851`
