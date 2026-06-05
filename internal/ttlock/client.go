@@ -587,12 +587,35 @@ func (c *Client) DeleteCardByNumber(
 		return 0, err
 	}
 
+	deleteTypes := []string{"2", "1"}
+	var lastErr error
+	for _, deleteType := range deleteTypes {
+		err := c.deleteCardByIDWithType(ctx, lockID, cardID, accessToken, deleteType)
+		if err == nil {
+			return cardID, nil
+		}
+		lastErr = err
+		if !isTTLockPermissionDenied(err) {
+			return 0, err
+		}
+	}
+
+	return 0, lastErr
+}
+
+func (c *Client) deleteCardByIDWithType(
+	ctx context.Context,
+	lockID int64,
+	cardID int64,
+	accessToken string,
+	deleteType string,
+) error {
 	form := url.Values{}
 	form.Set("clientId", c.ClientID)
 	form.Set("accessToken", accessToken)
 	form.Set("lockId", strconv.FormatInt(lockID, 10))
 	form.Set("cardId", strconv.FormatInt(cardID, 10))
-	form.Set("deleteType", "2")
+	form.Set("deleteType", deleteType)
 	form.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	endpoint := c.BaseURL + "/v3/identityCard/delete"
@@ -603,19 +626,19 @@ func (c *Client) DeleteCardByNumber(
 		strings.NewReader(form.Encode()),
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.do(httpReq)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
-		return 0, fmt.Errorf(
+		return fmt.Errorf(
 			"delete card failed (%d): %s",
 			resp.StatusCode,
 			strings.TrimSpace(string(body)),
@@ -624,13 +647,13 @@ func (c *Client) DeleteCardByNumber(
 
 	var result ttlockOperationResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, fmt.Errorf("decode response: %w", err)
+		return fmt.Errorf("decode response: %w", err)
 	}
 	if result.ErrCode != 0 {
-		return 0, fmt.Errorf("ttlock rejected delete card request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+		return fmt.Errorf("ttlock rejected delete card request (deleteType=%s): errcode=%d errmsg=%s raw=%s", deleteType, result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
 	}
 
-	return cardID, nil
+	return nil
 }
 
 func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (int64, error) {

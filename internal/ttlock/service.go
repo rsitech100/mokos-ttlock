@@ -20,6 +20,7 @@ type Service struct {
 }
 
 const defaultOperationTimeout = 30 * time.Second
+const maxCardValidityDuration = 24 * time.Hour
 
 var (
 	ErrPasscodeTooSimple  = errors.New("passcode is too simple")
@@ -81,6 +82,8 @@ type AddCardRequest struct {
 type AddCardResponse struct {
 	CardID int64
 	LockID int64
+	Start  time.Time
+	End    time.Time
 }
 
 type DeleteCardRequest struct {
@@ -333,17 +336,28 @@ func (s *Service) AddCard(ctx context.Context, req AddCardRequest) (*AddCardResp
 		return nil, errors.New("end_at must be after start_at")
 	}
 
+	effectiveEnd := req.End
+	maxEnd := req.Start.Add(maxCardValidityDuration)
+	if effectiveEnd.After(maxEnd) {
+		effectiveEnd = maxEnd
+	}
+
 	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
 	if err != nil {
 		return nil, err
 	}
 
-	cardID, err := client.AddCardByNumber(ctx, req.LockID, req.CardNumber, req.CardName, req.Start, req.End, accessToken)
+	cardID, err := client.AddCardByNumber(ctx, req.LockID, req.CardNumber, req.CardName, req.Start, effectiveEnd, accessToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AddCardResponse{CardID: cardID, LockID: req.LockID}, nil
+	return &AddCardResponse{
+		CardID: cardID,
+		LockID: req.LockID,
+		Start:  req.Start,
+		End:    effectiveEnd,
+	}, nil
 }
 
 func (s *Service) DeleteCard(ctx context.Context, req DeleteCardRequest) (*DeleteCardResponse, error) {

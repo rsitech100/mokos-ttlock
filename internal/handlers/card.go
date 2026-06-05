@@ -141,8 +141,8 @@ func (h *CardHandler) add(c *gin.Context) {
 		CardID:     result.CardID,
 		CardNumber: req.CardNumber,
 		CardName:   req.CardName,
-		StartAt:    req.Start.UnixMilli(),
-		EndAt:      req.End.UnixMilli(),
+		StartAt:    result.Start.UnixMilli(),
+		EndAt:      result.End.UnixMilli(),
 	})
 }
 
