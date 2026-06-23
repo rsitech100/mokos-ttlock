@@ -121,6 +121,9 @@ Body JSON:
 
 `POST /cards` menggunakan `kost_id` untuk resolve kredensial TTLock aktif dari tabel integrasi, sama seperti flow `/card/replace`.
 
+- `start_at` dan `end_at` opsional. Jika keduanya tidak diisi, masa aktif kartu default ke 24 jam dari waktu request dibuat.
+- Jika diisi, keduanya wajib format RFC3339 dan masa aktif tetap dibatasi maksimal 24 jam dari `start_at`.
+
 ### Delete Card
 `DELETE /cards?kost_id=6f89a499-3018-45f0-b90f-9906f4c77cca&lock_id=25040769&card_number=1550390851`
 

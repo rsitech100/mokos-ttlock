@@ -15,6 +15,8 @@ type CardHandler struct {
 	service *ttlock.Service
 }
 
+const defaultCardValidityDuration = 24 * time.Hour
+
 func NewReplaceCardHandler(service *ttlock.Service) gin.HandlerFunc {
 	h := &CardHandler{service: service}
 	return h.replace
@@ -50,8 +52,8 @@ type addCardRequestBody struct {
 	LockID     string `json:"lock_id" binding:"required"`
 	CardNumber string `json:"card_number" binding:"required"`
 	CardName   string `json:"card_name,omitempty"`
-	StartAt    string `json:"start_at" binding:"required"`
-	EndAt      string `json:"end_at" binding:"required"`
+	StartAt    string `json:"start_at,omitempty"`
+	EndAt      string `json:"end_at,omitempty"`
 }
 
 type addCardResponseBody struct {
@@ -238,18 +240,27 @@ func mapAddCardRequest(body addCardRequestBody) (ttlock.AddCardRequest, error) {
 		return ttlock.AddCardRequest{}, errors.New("card_number is required")
 	}
 
-	startAt, err := time.Parse(time.RFC3339, body.StartAt)
-	if err != nil {
-		return ttlock.AddCardRequest{}, errors.New("start_at must be RFC3339, e.g. 2024-12-24T12:00:00Z")
-	}
+	startAtStr := strings.TrimSpace(body.StartAt)
+	endAtStr := strings.TrimSpace(body.EndAt)
 
-	endAt, err := time.Parse(time.RFC3339, body.EndAt)
-	if err != nil {
-		return ttlock.AddCardRequest{}, errors.New("end_at must be RFC3339, e.g. 2024-12-25T12:00:00Z")
-	}
+	var startAt, endAt time.Time
+	if startAtStr == "" && endAtStr == "" {
+		startAt = time.Now().UTC()
+		endAt = startAt.Add(defaultCardValidityDuration)
+	} else {
+		startAt, err = time.Parse(time.RFC3339, startAtStr)
+		if err != nil {
+			return ttlock.AddCardRequest{}, errors.New("start_at must be RFC3339, e.g. 2024-12-24T12:00:00Z")
+		}
 
-	if endAt.Before(startAt) {
-		return ttlock.AddCardRequest{}, errors.New("end_at must be after start_at")
+		endAt, err = time.Parse(time.RFC3339, endAtStr)
+		if err != nil {
+			return ttlock.AddCardRequest{}, errors.New("end_at must be RFC3339, e.g. 2024-12-25T12:00:00Z")
+		}
+
+		if endAt.Before(startAt) {
+			return ttlock.AddCardRequest{}, errors.New("end_at must be after start_at")
+		}
 	}
 
 	return ttlock.AddCardRequest{
