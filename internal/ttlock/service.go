@@ -86,6 +86,31 @@ type AddCardResponse struct {
 	End    time.Time
 }
 
+type ExtendPasscodeRequest struct {
+	KostID     string
+	LockID     int64
+	PasscodeID int64
+	Name       string
+	Start      time.Time
+	End        time.Time
+}
+
+type PasscodeDetail struct {
+	ID        int64
+	Name      string
+	Passcode  string
+	StartsAt  time.Time
+	ExpiresAt time.Time
+}
+
+type CardDetail struct {
+	CardID     int64
+	CardName   string
+	CardNumber string
+	StartsAt   time.Time
+	ExpiresAt  time.Time
+}
+
 type DeleteCardRequest struct {
 	KostID     string
 	LockID     int64
@@ -235,6 +260,86 @@ func (s *Service) DeletePasscode(ctx context.Context, kostID string, lockID, pas
 	})
 }
 
+func (s *Service) ExtendPasscode(ctx context.Context, req ExtendPasscodeRequest) (*PasscodeResponse, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if req.LockID <= 0 {
+		return nil, errors.New("lock_id is required")
+	}
+	if req.PasscodeID <= 0 {
+		return nil, errors.New("passcode_id is required")
+	}
+	if req.End.Before(req.Start) {
+		return nil, errors.New("end_at must be after start_at")
+	}
+
+	client, accessToken, err := s.getClientAndAccessToken(ctx, req.KostID)
+	if err != nil {
+		return nil, err
+	}
+
+	current, err := client.GetKeyboardPasswordByID(ctx, req.LockID, req.PasscodeID, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = current.KeyboardPwdName
+	}
+
+	result, err := client.ChangeKeyboardPassword(ctx, KeyboardPwdRequest{
+		LockID:        req.LockID,
+		KeyboardPwdID: req.PasscodeID,
+		Name:          name,
+		Start:         req.Start,
+		End:           req.End,
+		KeyboardPwd:   current.KeyboardPwd,
+		AccessToken:   accessToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &PasscodeResponse{
+		ID:        result.KeyboardPwdID,
+		Passcode:  result.KeyboardPwd,
+		ExpiresAt: req.End,
+		StartsAt:  req.Start,
+	}, nil
+}
+
+func (s *Service) GetPasscode(ctx context.Context, kostID string, lockID, passcodeID int64) (*PasscodeDetail, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if lockID <= 0 {
+		return nil, errors.New("lock_id is required")
+	}
+	if passcodeID <= 0 {
+		return nil, errors.New("passcode_id is required")
+	}
+
+	client, accessToken, err := s.getClientAndAccessToken(ctx, kostID)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := client.GetKeyboardPasswordByID(ctx, lockID, passcodeID, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PasscodeDetail{
+		ID:        item.KeyboardPwdID,
+		Name:      item.KeyboardPwdName,
+		Passcode:  item.KeyboardPwd,
+		StartsAt:  time.UnixMilli(item.StartDate),
+		ExpiresAt: time.UnixMilli(item.EndDate),
+	}, nil
+}
+
 func withOperationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, hasDeadline := ctx.Deadline(); hasDeadline {
 		return ctx, func() {}
@@ -357,6 +462,36 @@ func (s *Service) AddCard(ctx context.Context, req AddCardRequest) (*AddCardResp
 		LockID: req.LockID,
 		Start:  req.Start,
 		End:    effectiveEnd,
+	}, nil
+}
+
+func (s *Service) GetCard(ctx context.Context, kostID string, lockID int64, cardNumber string) (*CardDetail, error) {
+	ctx, cancel := withOperationTimeout(ctx)
+	defer cancel()
+
+	if strings.TrimSpace(cardNumber) == "" {
+		return nil, ErrCardNumberRequired
+	}
+	if lockID <= 0 {
+		return nil, errors.New("lock_id is required")
+	}
+
+	client, accessToken, err := s.getClientAndAccessToken(ctx, kostID)
+	if err != nil {
+		return nil, err
+	}
+
+	card, err := client.GetCardByNumber(ctx, lockID, cardNumber, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CardDetail{
+		CardID:     card.CardID,
+		CardName:   card.CardName,
+		CardNumber: card.CardNumber,
+		StartsAt:   time.UnixMilli(card.StartDate),
+		ExpiresAt:  time.UnixMilli(card.EndDate),
 	}, nil
 }
 

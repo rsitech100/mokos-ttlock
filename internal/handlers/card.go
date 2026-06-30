@@ -32,6 +32,11 @@ func NewDeleteCardHandler(service *ttlock.Service) gin.HandlerFunc {
 	return h.delete
 }
 
+func NewCardDetailHandler(service *ttlock.Service) gin.HandlerFunc {
+	h := &CardHandler{service: service}
+	return h.detail
+}
+
 type replaceCardRequestBody struct {
 	KostID     string `json:"kost_id" binding:"required"`
 	LockID     string `json:"lock_id" binding:"required"`
@@ -71,6 +76,14 @@ type deleteCardRequestQuery struct {
 	KostID     string `form:"kost_id" binding:"required"`
 	LockID     string `form:"lock_id" binding:"required"`
 	CardNumber string `form:"card_number" binding:"required"`
+}
+
+type cardDetailResponseBody struct {
+	CardID     int64  `json:"card_id"`
+	CardName   string `json:"card_name,omitempty"`
+	CardNumber string `json:"card_number"`
+	StartAt    int64  `json:"start_at"`
+	EndAt      int64  `json:"end_at"`
 }
 
 func (h *CardHandler) replace(c *gin.Context) {
@@ -182,6 +195,43 @@ func (h *CardHandler) delete(c *gin.Context) {
 		"lock_id":     result.LockID,
 		"card_id":     result.CardID,
 		"card_number": req.CardNumber,
+	})
+}
+
+func (h *CardHandler) detail(c *gin.Context) {
+	var query deleteCardRequestQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	req, err := mapDeleteCardRequest(query)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.service.GetCard(c.Request.Context(), req.KostID, req.LockID, req.CardNumber)
+	if err != nil {
+		if ttlock.IsCardNumberNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, ttlock.ErrCardNumberRequired) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, cardDetailResponseBody{
+		CardID:     result.CardID,
+		CardName:   result.CardName,
+		CardNumber: result.CardNumber,
+		StartAt:    result.StartsAt.UnixMilli(),
+		EndAt:      result.ExpiresAt.UnixMilli(),
 	})
 }
 

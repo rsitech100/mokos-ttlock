@@ -61,9 +61,12 @@ func main() {
 	router.POST("/auth/verify-account", handlers.NewVerifyAccountHandler(client))
 	router.POST("/passcodes", handlers.NewPasscodeHandler(service))
 	router.POST("/passcodes/replace", handlers.NewReplacePasscodeHandler(service))
+	router.POST("/passcodes/extend", handlers.NewExtendPasscodeHandler(service))
+	router.GET("/passcodes/detail", handlers.NewPasscodeDetailHandler(service))
 	router.DELETE("/passcodes", handlers.NewDeletePasscodeHandler(service))
 	router.POST("/cards", handlers.NewAddCardHandler(service))
 	router.DELETE("/cards", handlers.NewDeleteCardHandler(service))
+	router.GET("/cards/detail", handlers.NewCardDetailHandler(service))
 	router.POST("/card/replace", handlers.NewReplaceCardHandler(service))
 	router.POST("/hash/md5", handlers.NewMD5HashHandler())
 

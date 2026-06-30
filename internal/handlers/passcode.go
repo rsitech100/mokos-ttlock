@@ -30,6 +30,16 @@ func NewDeletePasscodeHandler(service *ttlock.Service) gin.HandlerFunc {
 	return h.delete
 }
 
+func NewExtendPasscodeHandler(service *ttlock.Service) gin.HandlerFunc {
+	h := &PasscodeHandler{service: service}
+	return h.extend
+}
+
+func NewPasscodeDetailHandler(service *ttlock.Service) gin.HandlerFunc {
+	h := &PasscodeHandler{service: service}
+	return h.detail
+}
+
 type passcodeRequestBody struct {
 	KostID     string `json:"kost_id" binding:"required"`
 	LockID     string `json:"lock_id" binding:"required"`
@@ -53,6 +63,23 @@ type replacePasscodeResponseBody struct {
 	Passcode string `json:"passcode"`
 	StartAt  int64  `json:"start_at"`
 	EndAt    int64  `json:"end_at"`
+}
+
+type extendPasscodeRequestBody struct {
+	KostID     string `json:"kost_id" binding:"required"`
+	LockID     string `json:"lock_id" binding:"required"`
+	PasscodeID string `json:"passcode_id" binding:"required"`
+	Name       string `json:"name,omitempty"`
+	StartAt    string `json:"start_at" binding:"required"`
+	EndAt      string `json:"end_at" binding:"required"`
+}
+
+type passcodeDetailResponseBody struct {
+	PasscodeID int64  `json:"passcode_id"`
+	Passcode   string `json:"passcode"`
+	Name       string `json:"name"`
+	StartAt    int64  `json:"start_at"`
+	EndAt      int64  `json:"end_at"`
 }
 
 func (h *PasscodeHandler) handle(c *gin.Context) {
@@ -147,6 +174,115 @@ func (h *PasscodeHandler) delete(c *gin.Context) {
 		"lock_id":     lockID,
 		"passcode_id": passcodeID,
 	})
+}
+
+func (h *PasscodeHandler) extend(c *gin.Context) {
+	var body extendPasscodeRequestBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	req, err := mapExtendRequest(body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.service.ExtendPasscode(c.Request.Context(), req)
+	if err != nil {
+		if ttlock.IsPasscodeNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, replacePasscodeResponseBody{
+		ID:       result.ID,
+		Passcode: result.Passcode,
+		StartAt:  result.StartsAt.UnixMilli(),
+		EndAt:    result.ExpiresAt.UnixMilli(),
+	})
+}
+
+func (h *PasscodeHandler) detail(c *gin.Context) {
+	kostID := c.Query("kost_id")
+	if kostID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "kost_id query parameter is required"})
+		return
+	}
+
+	lockID, err := strconv.ParseInt(c.Query("lock_id"), 10, 64)
+	if err != nil || lockID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "lock_id query parameter must be a number"})
+		return
+	}
+
+	passcodeID, err := strconv.ParseInt(c.Query("passcode_id"), 10, 64)
+	if err != nil || passcodeID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "passcode_id query parameter must be a number"})
+		return
+	}
+
+	result, err := h.service.GetPasscode(c.Request.Context(), kostID, lockID, passcodeID)
+	if err != nil {
+		if ttlock.IsPasscodeNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, passcodeDetailResponseBody{
+		PasscodeID: result.ID,
+		Passcode:   result.Passcode,
+		Name:       result.Name,
+		StartAt:    result.StartsAt.UnixMilli(),
+		EndAt:      result.ExpiresAt.UnixMilli(),
+	})
+}
+
+func mapExtendRequest(body extendPasscodeRequestBody) (ttlock.ExtendPasscodeRequest, error) {
+	kostID := strings.TrimSpace(body.KostID)
+	if kostID == "" {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("kost_id is required")
+	}
+
+	lockID, err := strconv.ParseInt(body.LockID, 10, 64)
+	if err != nil || lockID <= 0 {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("lock_id must be a number")
+	}
+
+	passcodeID, err := strconv.ParseInt(body.PasscodeID, 10, 64)
+	if err != nil || passcodeID <= 0 {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("passcode_id must be a number")
+	}
+
+	startAt, err := time.Parse(time.RFC3339, body.StartAt)
+	if err != nil {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("start_at must be RFC3339, e.g. 2024-12-24T12:00:00Z")
+	}
+
+	endAt, err := time.Parse(time.RFC3339, body.EndAt)
+	if err != nil {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("end_at must be RFC3339, e.g. 2024-12-25T12:00:00Z")
+	}
+
+	if endAt.Before(startAt) {
+		return ttlock.ExtendPasscodeRequest{}, errors.New("end_at must be after start_at")
+	}
+
+	return ttlock.ExtendPasscodeRequest{
+		KostID:     kostID,
+		LockID:     lockID,
+		PasscodeID: passcodeID,
+		Name:       strings.TrimSpace(body.Name),
+		Start:      startAt,
+		End:        endAt,
+	}, nil
 }
 
 func mapRequest(body passcodeRequestBody) (ttlock.PasscodeRequest, error) {

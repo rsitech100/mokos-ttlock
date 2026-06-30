@@ -55,7 +55,10 @@ type ttlockOperationResponse struct {
 
 type identityCard struct {
 	CardID     int64  `json:"cardId"`
+	CardName   string `json:"cardName"`
 	CardNumber string `json:"cardNumber"`
+	StartDate  int64  `json:"startDate"`
+	EndDate    int64  `json:"endDate"`
 }
 
 type identityCardListResponse struct {
@@ -68,10 +71,33 @@ type identityCardListResponse struct {
 	ErrMsg   string         `json:"errmsg"`
 }
 
+type keyboardPwdListItem struct {
+	KeyboardPwdID   int64  `json:"keyboardPwdId"`
+	KeyboardPwd     string `json:"keyboardPwd"`
+	KeyboardPwdName string `json:"keyboardPwdName"`
+	StartDate       int64  `json:"startDate"`
+	EndDate         int64  `json:"endDate"`
+}
+
+type keyboardPwdListResponse struct {
+	List     []keyboardPwdListItem `json:"list"`
+	PageNo   int                   `json:"pageNo"`
+	PageSize int                   `json:"pageSize"`
+	Pages    int                   `json:"pages"`
+	Total    int                   `json:"total"`
+	ErrCode  int64                 `json:"errcode"`
+	ErrMsg   string                `json:"errmsg"`
+}
+
 var ErrCardNumberNotFound = errors.New("card_number not found on lock")
+var ErrPasscodeNotFound = errors.New("passcode_id not found on lock")
 
 func IsCardNumberNotFound(err error) bool {
 	return errors.Is(err, ErrCardNumberNotFound)
+}
+
+func IsPasscodeNotFound(err error) bool {
+	return errors.Is(err, ErrPasscodeNotFound)
 }
 
 func NewClient(baseURL, clientID, clientSecret string, httpClient *http.Client) *Client {
@@ -395,6 +421,65 @@ func (c *Client) DeleteKeyboardPassword(
 	return nil
 }
 
+func (c *Client) GetKeyboardPasswordByID(
+	ctx context.Context,
+	lockID int64,
+	keyboardPwdID int64,
+	accessToken string,
+) (*keyboardPwdListItem, error) {
+	if accessToken == "" {
+		return nil, errors.New("access token is required")
+	}
+	if lockID <= 0 {
+		return nil, errors.New("lockId is required")
+	}
+	if keyboardPwdID <= 0 {
+		return nil, errors.New("keyboardPwdId is required")
+	}
+
+	params := url.Values{}
+	params.Set("clientId", c.ClientID)
+	params.Set("accessToken", accessToken)
+	params.Set("lockId", strconv.FormatInt(lockID, 10))
+	params.Set("pageNo", "1")
+	params.Set("pageSize", "100")
+	params.Set("date", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	endpoint := c.BaseURL + "/v3/lock/listKeyboardPwd?" + params.Encode()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("get keyboard password list failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result keyboardPwdListResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decode keyboard password list response: %w", err)
+	}
+
+	if result.ErrCode != 0 {
+		return nil, fmt.Errorf("ttlock rejected keyboard password list request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+	}
+
+	for _, item := range result.List {
+		if item.KeyboardPwdID == keyboardPwdID {
+			return &item, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: passcode_id %d not found on lock %d", ErrPasscodeNotFound, keyboardPwdID, lockID)
+}
+
 func (c *Client) ChangeCardPeriodByNumber(
 	ctx context.Context,
 	lockID int64,
@@ -657,6 +742,21 @@ func (c *Client) deleteCardByIDWithType(
 }
 
 func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (int64, error) {
+	card, err := c.findCardByNumber(ctx, lockID, cardNumber, accessToken)
+	if err != nil {
+		return 0, err
+	}
+	return card.CardID, nil
+}
+
+// GetCardByNumber fetches full card details (name, number, validity window) by card_number.
+func (c *Client) GetCardByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (*identityCard, error) {
+	return c.findCardByNumber(ctx, lockID, cardNumber, accessToken)
+}
+
+func (c *Client) findCardByNumber(ctx context.Context, lockID int64, cardNumber, accessToken string) (*identityCard, error) {
+	cardNumber = strings.TrimSpace(cardNumber)
+
 	params := url.Values{}
 	params.Set("clientId", c.ClientID)
 	params.Set("accessToken", accessToken)
@@ -668,39 +768,39 @@ func (c *Client) findCardIDByNumber(ctx context.Context, lockID int64, cardNumbe
 	endpoint := c.BaseURL + "/v3/identityCard/list?" + params.Encode()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	resp, err := c.do(httpReq)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("get card list failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("get card list failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var result identityCardListResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, fmt.Errorf("decode card list response: %w", err)
+		return nil, fmt.Errorf("decode card list response: %w", err)
 	}
 
 	if result.ErrCode != 0 {
-		return 0, fmt.Errorf("ttlock rejected card list request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("ttlock rejected card list request: errcode=%d errmsg=%s raw=%s", result.ErrCode, strings.TrimSpace(result.ErrMsg), strings.TrimSpace(string(body)))
 	}
 
 	for _, card := range result.List {
 		if strings.TrimSpace(card.CardNumber) == cardNumber {
 			if card.CardID <= 0 {
-				return 0, fmt.Errorf("ttlock card data missing cardId for card_number=%s", cardNumber)
+				return nil, fmt.Errorf("ttlock card data missing cardId for card_number=%s", cardNumber)
 			}
-			return card.CardID, nil
+			return &card, nil
 		}
 	}
 
-	return 0, fmt.Errorf("%w: card_number %s not found on lock %d", ErrCardNumberNotFound, cardNumber, lockID)
+	return nil, fmt.Errorf("%w: card_number %s not found on lock %d", ErrCardNumberNotFound, cardNumber, lockID)
 }
 
 func decodeKeyboardPwdResponse(body []byte, fallbackID int64, fallbackPwd string) (*keyboardPwdResponse, error) {
