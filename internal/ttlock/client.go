@@ -216,6 +216,56 @@ func (c *Client) AuthenticatePassword(ctx context.Context, username, password st
 	return &token, expiresAt, nil
 }
 
+// RefreshToken performs the refresh_token grant to renew an access token
+// without re-sending the account credentials.
+func (c *Client) RefreshToken(ctx context.Context, refreshToken string) (*tokenResponse, time.Time, error) {
+	if refreshToken == "" {
+		return nil, time.Time{}, errors.New("refresh_token is required")
+	}
+
+	values := url.Values{}
+	values.Set("client_id", c.ClientID)
+	values.Set("client_secret", c.ClientSecret)
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", refreshToken)
+
+	endpoint := c.BaseURL + c.tokenEndpoint
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, time.Time{}, fmt.Errorf("token refresh failed: %s", strings.TrimSpace(string(body)))
+	}
+
+	var token tokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return nil, time.Time{}, fmt.Errorf("decode token response: %w", err)
+	}
+
+	if token.AccessToken == "" {
+		if token.ErrCode != 0 || token.ErrMsg != "" {
+			return nil, time.Time{}, fmt.Errorf("token refresh rejected: errcode=%d errmsg=%s", token.ErrCode, strings.TrimSpace(token.ErrMsg))
+		}
+		if token.Error != "" || token.ErrorDescription != "" {
+			return nil, time.Time{}, fmt.Errorf("token refresh rejected: %s (%s)", strings.TrimSpace(token.Error), strings.TrimSpace(token.ErrorDescription))
+		}
+		return nil, time.Time{}, fmt.Errorf("empty access token, raw response: %s", strings.TrimSpace(string(body)))
+	}
+
+	expiresAt := time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+	return &token, expiresAt, nil
+}
+
 type KeyboardPwdRequest struct {
 	LockID        int64
 	KeyboardPwdID int64

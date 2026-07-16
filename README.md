@@ -79,6 +79,7 @@ Respon contoh:
 - `TTLOCK_CLIENT_ID` dan `TTLOCK_CLIENT_SECRET` diambil dari `.env`.
 - Service mengambil `email` dan `password` TTLock dari tabel `public.ttlock_integrations` berdasarkan `kost_id` (status `active`).
 - Service akan meng-hit `/oauth2/token` untuk mendapatkan access token hanya jika token yang tersimpan di `ttlock_integrations` sudah tidak ada atau sudah expired (dengan buffer 5 menit); selama masih valid, token yang tersimpan dipakai ulang.
+- Perpanjangan token (saat access token expired) memakai `grant_type=refresh_token` (`/oauth2/token` dengan `refresh_token` yang tersimpan), bukan login ulang. Login ulang dengan `grant_type=password` (email/password) hanya dipakai sebagai fallback jika belum ada `refresh_token` tersimpan atau refresh-nya gagal (mis. refresh token sudah expired).
 - Jika `passcode_id` kosong, service memanggil `/v3/keyboardPwd/add` (buat passcode baru).
 - Jika `passcode_id` diisi, service memanggil `/v3/keyboardPwd/change` (update passcode existing).
 - Jika `card_number` diisi, service juga akan mencari kartu berdasarkan nomor kartu tersebut lalu update `start_at`/`end_at` kartu ke TTLock (`/v3/identityCard/changePeriod`).
@@ -152,6 +153,7 @@ CREATE TABLE public.ttlock_integrations (
 	email varchar(255) NOT NULL,
 	"password" varchar(255) NOT NULL,
 	access_token varchar(512),
+	refresh_token varchar(512),
 	token_expires_at timestamptz,
 	status public.enum_ttlock_integrations_status DEFAULT 'active'::enum_ttlock_integrations_status NOT NULL,
 	"createdAt" timestamptz NOT NULL,
@@ -161,12 +163,20 @@ CREATE TABLE public.ttlock_integrations (
 );
 ```
 
-`access_token` dan `token_expires_at` dipakai sebagai cache OAuth token per kost — diisi otomatis oleh service setelah authenticate ke TTLock, dan dipakai ulang sampai expired. Untuk tabel yang sudah ada, tambahkan kolomnya dengan:
+`access_token`, `refresh_token`, dan `token_expires_at` dipakai sebagai cache OAuth token per kost — diisi otomatis oleh service setelah authenticate/refresh ke TTLock, dan dipakai ulang sampai expired. Saat expired, service memperpanjang lewat `refresh_token` (bukan login ulang). Untuk tabel yang sudah ada, tambahkan kolomnya dengan:
 
 ```sql
 ALTER TABLE public.ttlock_integrations
   ADD COLUMN access_token varchar(512),
+  ADD COLUMN refresh_token varchar(512),
   ADD COLUMN token_expires_at timestamptz;
+```
+
+Jika tabel sudah punya kolom `access_token`/`token_expires_at` dari sebelumnya (belum ada `refresh_token`), tambahkan saja kolom yang kurang:
+
+```sql
+ALTER TABLE public.ttlock_integrations
+  ADD COLUMN refresh_token varchar(512);
 ```
 
 # mokos-lockdoor

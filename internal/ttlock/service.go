@@ -143,12 +143,21 @@ func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*
 		return client, creds.AccessToken.String, nil
 	}
 
-	token, expiresAt, err := client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
-	if err != nil {
-		return nil, "", err
+	var token *tokenResponse
+	var expiresAt time.Time
+
+	if creds.RefreshToken.Valid && creds.RefreshToken.String != "" {
+		token, expiresAt, err = client.RefreshToken(ctx, creds.RefreshToken.String)
 	}
 
-	if err := s.credsRepo.SaveToken(ctx, creds.ID, token.AccessToken, expiresAt); err != nil {
+	if token == nil {
+		token, expiresAt, err = client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	if err := s.credsRepo.SaveToken(ctx, creds.ID, token.AccessToken, token.RefreshToken, expiresAt); err != nil {
 		return nil, "", err
 	}
 

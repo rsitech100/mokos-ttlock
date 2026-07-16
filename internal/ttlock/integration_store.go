@@ -14,12 +14,13 @@ type Credential struct {
 	Email          string
 	Password       string
 	AccessToken    sql.NullString
+	RefreshToken   sql.NullString
 	TokenExpiresAt sql.NullTime
 }
 
 type CredentialStore interface {
 	GetActiveByKostID(ctx context.Context, kostID string) (Credential, error)
-	SaveToken(ctx context.Context, id string, accessToken string, expiresAt time.Time) error
+	SaveToken(ctx context.Context, id string, accessToken string, refreshToken string, expiresAt time.Time) error
 }
 
 type PostgresCredentialStore struct {
@@ -41,6 +42,7 @@ SELECT
 	email,
 	"password",
 	access_token,
+	refresh_token,
 	token_expires_at
 FROM public.ttlock_integrations
 WHERE kostid = $1::uuid
@@ -55,6 +57,7 @@ LIMIT 1
 		&c.Email,
 		&c.Password,
 		&c.AccessToken,
+		&c.RefreshToken,
 		&c.TokenExpiresAt,
 	)
 	if err != nil {
@@ -74,7 +77,7 @@ LIMIT 1
 	return c, nil
 }
 
-func (s *PostgresCredentialStore) SaveToken(ctx context.Context, id string, accessToken string, expiresAt time.Time) error {
+func (s *PostgresCredentialStore) SaveToken(ctx context.Context, id string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("id is required")
 	}
@@ -82,12 +85,13 @@ func (s *PostgresCredentialStore) SaveToken(ctx context.Context, id string, acce
 	const q = `
 UPDATE public.ttlock_integrations
 SET access_token = $1,
-    token_expires_at = $2,
+    refresh_token = $2,
+    token_expires_at = $3,
     "updatedAt" = now()
-WHERE id = $3::uuid
+WHERE id = $4::uuid
 `
 
-	_, err := s.db.ExecContext(ctx, q, accessToken, expiresAt, id)
+	_, err := s.db.ExecContext(ctx, q, accessToken, refreshToken, expiresAt, id)
 	if err != nil {
 		return fmt.Errorf("save ttlock token: %w", err)
 	}
