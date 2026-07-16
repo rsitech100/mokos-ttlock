@@ -21,6 +21,7 @@ type Service struct {
 
 const defaultOperationTimeout = 30 * time.Second
 const maxCardValidityDuration = 24 * time.Hour
+const tokenExpiryBuffer = 5 * time.Minute
 
 var (
 	ErrPasscodeTooSimple  = errors.New("passcode is too simple")
@@ -136,10 +137,21 @@ func (s *Service) getClientAndAccessToken(ctx context.Context, kostID string) (*
 	}
 
 	client := NewClient(s.baseURL, s.clientID, s.clientSecret, s.http)
-	token, _, err := client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
+
+	if creds.AccessToken.Valid && creds.AccessToken.String != "" && creds.TokenExpiresAt.Valid &&
+		time.Now().Add(tokenExpiryBuffer).Before(creds.TokenExpiresAt.Time) {
+		return client, creds.AccessToken.String, nil
+	}
+
+	token, expiresAt, err := client.AuthenticatePassword(ctx, creds.Email, creds.Password, true)
 	if err != nil {
 		return nil, "", err
 	}
+
+	if err := s.credsRepo.SaveToken(ctx, creds.ID, token.AccessToken, expiresAt); err != nil {
+		return nil, "", err
+	}
+
 	return client, token.AccessToken, nil
 }
 

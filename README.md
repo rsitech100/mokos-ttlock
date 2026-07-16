@@ -78,7 +78,7 @@ Respon contoh:
 ## Catatan
 - `TTLOCK_CLIENT_ID` dan `TTLOCK_CLIENT_SECRET` diambil dari `.env`.
 - Service mengambil `email` dan `password` TTLock dari tabel `public.ttlock_integrations` berdasarkan `kost_id` (status `active`).
-- Service akan otomatis meng-hit `/oauth2/token` untuk mendapatkan access token.
+- Service akan meng-hit `/oauth2/token` untuk mendapatkan access token hanya jika token yang tersimpan di `ttlock_integrations` sudah tidak ada atau sudah expired (dengan buffer 5 menit); selama masih valid, token yang tersimpan dipakai ulang.
 - Jika `passcode_id` kosong, service memanggil `/v3/keyboardPwd/add` (buat passcode baru).
 - Jika `passcode_id` diisi, service memanggil `/v3/keyboardPwd/change` (update passcode existing).
 - Jika `card_number` diisi, service juga akan mencari kartu berdasarkan nomor kartu tersebut lalu update `start_at`/`end_at` kartu ke TTLock (`/v3/identityCard/changePeriod`).
@@ -151,12 +151,22 @@ CREATE TABLE public.ttlock_integrations (
 	secret_key varchar(255) NOT NULL,
 	email varchar(255) NOT NULL,
 	"password" varchar(255) NOT NULL,
+	access_token varchar(512),
+	token_expires_at timestamptz,
 	status public.enum_ttlock_integrations_status DEFAULT 'active'::enum_ttlock_integrations_status NOT NULL,
 	"createdAt" timestamptz NOT NULL,
 	"updatedAt" timestamptz NOT NULL,
 	CONSTRAINT ttlock_integrations_pkey PRIMARY KEY (id),
 	CONSTRAINT ttlock_integrations_kostid_fkey FOREIGN KEY (kostid) REFERENCES public.kosts(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
+```
+
+`access_token` dan `token_expires_at` dipakai sebagai cache OAuth token per kost — diisi otomatis oleh service setelah authenticate ke TTLock, dan dipakai ulang sampai expired. Untuk tabel yang sudah ada, tambahkan kolomnya dengan:
+
+```sql
+ALTER TABLE public.ttlock_integrations
+  ADD COLUMN access_token varchar(512),
+  ADD COLUMN token_expires_at timestamptz;
 ```
 
 # mokos-lockdoor

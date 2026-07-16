@@ -6,15 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Credential struct {
-	Email    string
-	Password string
+	ID             string
+	Email          string
+	Password       string
+	AccessToken    sql.NullString
+	TokenExpiresAt sql.NullTime
 }
 
 type CredentialStore interface {
 	GetActiveByKostID(ctx context.Context, kostID string) (Credential, error)
+	SaveToken(ctx context.Context, id string, accessToken string, expiresAt time.Time) error
 }
 
 type PostgresCredentialStore struct {
@@ -32,8 +37,11 @@ func (s *PostgresCredentialStore) GetActiveByKostID(ctx context.Context, kostID 
 
 	const q = `
 SELECT
+	id,
 	email,
-	"password"
+	"password",
+	access_token,
+	token_expires_at
 FROM public.ttlock_integrations
 WHERE kostid = $1::uuid
   AND status = 'active'
@@ -43,8 +51,11 @@ LIMIT 1
 
 	var c Credential
 	err := s.db.QueryRowContext(ctx, q, kostID).Scan(
+		&c.ID,
 		&c.Email,
 		&c.Password,
+		&c.AccessToken,
+		&c.TokenExpiresAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -61,4 +72,25 @@ LIMIT 1
 	}
 
 	return c, nil
+}
+
+func (s *PostgresCredentialStore) SaveToken(ctx context.Context, id string, accessToken string, expiresAt time.Time) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("id is required")
+	}
+
+	const q = `
+UPDATE public.ttlock_integrations
+SET access_token = $1,
+    token_expires_at = $2,
+    "updatedAt" = now()
+WHERE id = $3::uuid
+`
+
+	_, err := s.db.ExecContext(ctx, q, accessToken, expiresAt, id)
+	if err != nil {
+		return fmt.Errorf("save ttlock token: %w", err)
+	}
+
+	return nil
 }
